@@ -16,6 +16,9 @@ void plot_pixel(int x, int y, short int color);
 void plot_image_draw_test(int x, int y);
 void erase_image_draw_test(int x, int y);
 void plot_image_mario(int x, int y);
+int global_x = 0;
+int global_y = 0;
+void fake_delay(int time);
 int main(void) {
   volatile int *pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
 
@@ -31,11 +34,46 @@ int main(void) {
       *(pixel_ctrl_ptr +
         1);  // Back buffer is now Buffer2. -> we draw on the back buffer
   clear_screen();
+  int x = global_x;
+  int y = global_y;
+  int target_x = 1;
+  int target_y = 166;
+  int dx = 1;
+  int dy = 1;
+
   while (1) {
-    plot_image_draw_test(0, 0);
-    plot_image_mario(1, 66);
-    wait_for_vsync();
-    pixel_buffer_start = *(pixel_ctrl_ptr + 1);  // new back buffer
+    // Move toward target
+    while (x != target_x || y != target_y) {
+      plot_image_draw_test(0, 0);  // clear background
+      plot_image_mario(x, y);      // draw Mario at new position
+
+      fake_delay(10);  // small delay for animation
+      wait_for_vsync();
+      pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+
+      // Update position
+      if (x < target_x)
+        x += dx;
+      else if (x > target_x)
+        x -= dx;
+
+      if (y < target_y)
+        y += dy;
+      else if (y > target_y)
+        y -= dy;
+    }
+
+    // Swap start and target to go back and forth
+    int temp_x = target_x;
+    int temp_y = target_y;
+    target_x = global_x;
+    target_y = global_y;
+    global_x = temp_x;
+    global_y = temp_y;
+
+    // Reset current position to where Mario just arrived
+    x = global_x;
+    y = global_y;
   }
 }
 void wait_for_vsync() {
@@ -8727,5 +8765,11 @@ void erase_image_mario(int x, int y) {
     for (int j = 0; j < 28; j++) {
       plot_pixel(x + j, y + i, 0);
     }
+  }
+}
+
+void fake_delay(int time) {
+  for (int i = 0; i < time; i++) {
+    printf("%d", i);
   }
 }
