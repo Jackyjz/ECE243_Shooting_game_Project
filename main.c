@@ -6,7 +6,9 @@
 #define PIXEL_BUF_CTRL_BASE 0xFF203020
 #define COLOR_BLACK 0x0000
 #define RLEDs ((volatile long *)0xFF200000)
-
+#define MAX_BULLETS 5
+#define BOMB_WIDTH 23  // whatever your bomb width is
+#define BOMB_HEIGHT 25
 volatile int pixel_buffer_start;        // Pointer to the current drawing buffer
 short int Buffer1[SCREEN_HEIGHT][512];  // Front/back buffer 1
 short int Buffer2[SCREEN_HEIGHT][512];  // Front/back buffer 2
@@ -29,15 +31,18 @@ int extended = 0;
 int break_code = 0;
 int x_old, y_old;
 int x_old2, y_old2;
-int bullet_x;
-int bullet_y;
+int bullx_old[MAX_BULLETS], bullx_old2[MAX_BULLETS];
+int bully_old[MAX_BULLETS], bully_old2[MAX_BULLETS];
+int bullet_x[MAX_BULLETS];
+int bullet_y[MAX_BULLETS];
 bool fire = false;
 bool bullet_active = false;
 void shift_old_positions();
+void shift_bull_old_positions();
 void bullet_shooting();
 void bullet_update();
-#define MAX_BULLETS 5
 
+extern short unsigned int bg[76800];
 typedef struct {
   int x, y;
   bool active;
@@ -55,27 +60,43 @@ int main(void) {
   *(pixel_ctrl_ptr + 1) = (int)&Buffer2;  // back buffer = Buffer2
   pixel_buffer_start = *(pixel_ctrl_ptr + 1);
   clear_screen();
+
   while (1) {
-    // keyboard control
+    pixel_buffer_start = *(pixel_ctrl_ptr + 1);  // buffer A
     plot_image_bg(0, 0);
-    read_PS2_Mario();
-    // erase_image_mario(x_old2, y_old2);  // questionable!!
-    //  --- DRAW ---
-    if (mario_y < 0) {
-      mario_y = 185;
-    }
-    if (mario_y > 185) {
-      mario_y = 0;
-    }
-    plot_image_mario(mario_x, mario_y);
-    if (fire) {
-      bullet_shooting();  // Sets bullet_x/y and bullet_active = 1
-      fire = false;       // Reset shoot request
-    }
-    bullet_update();
-    // shift_old_positions();
     wait_for_vsync();
-    pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+
+    pixel_buffer_start = *(pixel_ctrl_ptr + 1);  // buffer B
+    plot_image_bg(0, 0);
+    wait_for_vsync();  // draw bg to both buffer avoid flickering
+    while (1) {
+      // Erase old Mario position
+      erase_image_mario(x_old2, y_old2);
+
+      // Input
+      read_PS2_Mario();
+
+      // Bounds check
+      if (mario_y < 0) mario_y = 185;
+      if (mario_y > 185) mario_y = 0;
+
+      // Fire bullet
+      if (fire) {
+        bullet_shooting();
+        fire = false;
+      }
+
+      bullet_update();  // or bullet_update()
+
+      // Draw updated Mario
+      plot_image_mario(mario_x, mario_y);
+
+      // Shift tracking positions
+      shift_old_positions();
+      // Sync to screen
+      wait_for_vsync();
+      pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+    }
   }
   return 0;
 }
@@ -83,14 +104,16 @@ int main(void) {
 void bullet_update() {  // bullet flying animation
   for (int i = 0; i < MAX_BULLETS; i++) {
     if (bullets[i].active) {
+      erase_image_bomb(bullx_old2[i], bully_old2[i]);
       bullets[i].x += 5;
       if (bullets[i].x > SCREEN_WIDTH) {
         bullets[i].active = false;  // make bullet slot avaliable again
-      } else {
+      } else if (bullets[i].x + BOMB_WIDTH < SCREEN_WIDTH) {
         plot_image_bomb(bullets[i].x, bullets[i].y);
       }
     }
   }
+  shift_bull_old_positions();
 }
 void read_PS2_Mario() {
   volatile int *PS2_ptr = (int *)0xFF200100;  // PS/2 base address
@@ -144,6 +167,14 @@ void shift_old_positions() {
   x_old = mario_x;  // Current becomes previous.
   y_old = mario_y;
 }
+void shift_bull_old_positions() {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    bullx_old2[i] = bullx_old[i];
+    bully_old2[i] = bully_old[i];
+    bullx_old[i] = bullets[i].x;
+    bully_old[i] = bullets[i].y;
+  }
+}
 
 void bullet_shooting() {  // get ready to fire
   for (int i = 0; i < MAX_BULLETS; i++) {
@@ -151,6 +182,11 @@ void bullet_shooting() {  // get ready to fire
       bullets[i].x = mario_x + 26;
       bullets[i].y = mario_y + 7;
       bullets[i].active = true;
+
+      bullx_old[i] = bullets[i].x;
+      bully_old[i] = bullets[i].y;
+      bullx_old2[i] = bullets[i].x;
+      bully_old2[i] = bullets[i].y;
       break;  // only shoot one bullet per fire
     }
   }
@@ -255,9 +291,18 @@ void plot_image_bomb(int x, int y) {
 }
 
 void erase_image_bomb(int x, int y) {
-  for (int i = 0; i < 23; i++) {
-    for (int j = 0; j < 25; j++) {
-      if (bomb[i * 25 + j] != 0xDEAD) plot_pixel(x + j, y + i, 0);
+  for (int row = 0; row < BOMB_HEIGHT; row++) {
+    for (int col = 0; col < BOMB_WIDTH; col++) {
+      int draw_x = x + col;
+      int draw_y = y + row;
+
+      // Make sure we're within screen bounds
+      if (draw_x >= 0 && draw_x < SCREEN_WIDTH && draw_y >= 0 &&
+          draw_y < SCREEN_HEIGHT) {
+        int index = draw_y * SCREEN_WIDTH + draw_x;
+        short unsigned int color = bg[index];
+        plot_pixel(draw_x, draw_y, color);
+      }
     }
   }
 }
