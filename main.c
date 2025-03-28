@@ -19,7 +19,8 @@
 volatile int pixel_buffer_start;        // Pointer to the current drawing buffer
 short int Buffer1[SCREEN_HEIGHT][512];  // Front/back buffer 1
 short int Buffer2[SCREEN_HEIGHT][512];  // Front/back buffer 2
-
+int score;
+bool stop = false;
 void wait_for_vsync();
 void clear_screen();
 void plot_pixel(int x, int y, short int color);
@@ -63,6 +64,10 @@ void erase_enemy(int x, int y, int width, int height);
 void erase_each_enemies();
 extern short unsigned int bg[76800];
 float initial_speed = 1;
+bool AABB_collision(int x1, int y1, int w1, int h1, int x2, int y2, int w2,
+                    int h2);
+void check_bullet_enemy_collisions();
+void reset_game();
 
 typedef struct {
   int x;
@@ -79,6 +84,7 @@ typedef struct {
 } Bullet;
 
 Bullet bullets[MAX_BULLETS];
+
 int main(void) {
   srand(time(NULL));
   volatile int *pixel_ctrl_ptr = (int *)PIXEL_BUF_CTRL_BASE;
@@ -101,6 +107,38 @@ int main(void) {
     plot_image_bg(0, 0);
     wait_for_vsync();  // draw bg to both buffer avoid flickering
     while (1) {
+      if (stop) {
+        reset_game();
+        stop = false;
+        plot_image_bg(0, 0);
+        wait_for_vsync();
+        pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+        break;
+      }
+      if (score == 5) {
+        // Display Game Over once:
+        clear_screen();
+        wait_for_vsync();
+        pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+        // Now enter a loop that simply waits for ESC without clearing again:
+        while (1) {
+          read_PS2_Mario();
+          if (stop) {
+            break;  // Exit the game-over loop
+          }
+        }
+        // Once exit, reset game
+        reset_game();
+        stop = false;
+        pixel_buffer_start = *(pixel_ctrl_ptr + 1);  // buffer A
+        plot_image_bg(0, 0);
+        wait_for_vsync();
+        pixel_buffer_start = *(pixel_ctrl_ptr + 1);  // buffer B
+        plot_image_bg(0, 0);
+        wait_for_vsync();  // draw bg to both buffer avoid flickering
+      }
+
+      check_bullet_enemy_collisions();
       frame_count++;
       erase_each_enemies();
       // --- Enemy Spawning ---
@@ -114,7 +152,6 @@ int main(void) {
       }
       update_enemies();
       shift_old_positions_enemies();
-
       erase_image_mario(x_old2, y_old2);
 
       // Input
@@ -129,14 +166,16 @@ int main(void) {
         bullet_shooting();
         fire = false;
       }
-
       bullet_update();  // or bullet_update()
 
       // Draw updated Mario
       plot_image_mario(mario_x, mario_y);
 
       // Shift tracking positions
+
       shift_old_positions();
+      shift_bull_old_positions();
+
       // Sync to screen
       wait_for_vsync();
       pixel_buffer_start = *(pixel_ctrl_ptr + 1);
@@ -144,6 +183,69 @@ int main(void) {
   }
   return 0;
 }
+void reset_game() {
+  // Reset score and frame counter
+  score = 0;
+  frame_count = 0;
+  initial_speed = 1.0;  // starting enemy speed
+
+  // Reset Mario's position (update these to your desired starting positions)
+  mario_x = 0;
+  mario_y = 0;
+
+  // Reset enemy array: deactivate all enemies and clear their positions
+  for (int i = 0; i < Max_Enemies; i++) {
+    enemies[i].active = false;
+    enemies[i].x = 0;
+    enemies[i].y = 0;
+    enemiesx_old[i] = enemiesy_old[i] = -100;
+    enemiesx_old2[i] = enemiesy_old2[i] = -100;
+  }
+
+  // Reset bullet array: deactivate all bullets and clear their positions
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    bullets[i].active = false;
+    bullets[i].x = 0;
+    bullets[i].y = 0;
+    bullx_old[i] = bully_old[i] = -100;
+    bullx_old2[i] = bully_old2[i] = -100;
+  }
+
+  // Clear the screen to remove any leftover graphics
+}
+
+void check_bullet_enemy_collisions() {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    if (!bullets[i].active) continue;
+
+    for (int j = 0; j < Max_Enemies; j++) {
+      if (!enemies[j].active) continue;
+
+      if (AABB_collision(bullets[i].x, bullets[i].y, BOMB_WIDTH, BOMB_HEIGHT,
+                         enemies[j].x, enemies[j].y, Enemies_WIDTH,
+                         Enemies_HEIGHT)) {
+        // Collision happened!
+        score++;
+        erase_enemy(enemiesx_old2[j], enemiesy_old2[j], Enemies_WIDTH,
+                    Enemies_HEIGHT);
+        erase_image_bomb(bullx_old2[i], bully_old2[i]);
+        // bullets[i].active = false;
+        enemies[j].active = false;
+        printf("Score: %d\n", score);
+        // fflush(stdout);
+      }
+    }
+  }
+}
+
+bool AABB_collision(int x1, int y1, int w1, int h1,  // AABB colision checking
+                    int x2, int y2, int w2, int h2) {
+  return !(x1 + w1 < x2 ||  // left of enemy
+           x1 > x2 + w2 ||  // right of enemy
+           y1 + h1 < y2 ||  // above enemy
+           y1 > y2 + h2);   // below enemy
+}
+
 void erase_each_enemies() {
   for (int i = 0; i < Max_Enemies; i++) {
     // Always erase based on previous position (T-2), regardless of active state
@@ -311,12 +413,11 @@ void bullet_update() {  // bullet flying animation
       bullets[i].x += 5;
       if (bullets[i].x > SCREEN_WIDTH) {
         bullets[i].active = false;  // make bullet slot avaliable again
-      } else if (bullets[i].x + BOMB_WIDTH < SCREEN_WIDTH) {
+      } else if ((bullets[i].x + BOMB_WIDTH < SCREEN_WIDTH)) {
         plot_image_bomb(bullets[i].x, bullets[i].y);
       }
     }
   }
-  shift_bull_old_positions();
 }
 void read_PS2_Mario() {
   volatile int *PS2_ptr = (int *)0xFF200100;  // PS/2 base address
@@ -358,6 +459,9 @@ void read_PS2_Mario() {
       if (!break_code) {
         if (code == 0x29) {
           fire = true;
+        }
+        if (code == 0x76) {
+          stop = true;
         }
       }
       break_code = 0;
