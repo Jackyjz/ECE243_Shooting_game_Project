@@ -58,8 +58,8 @@ void erase_image_{img_name}(int x, int y) {{
 
 if __name__ == '__main__':
     convert_img(
-        file_name=r'goomba.png',
-        img_name='goomba',
-        width=20,
-        height=15
+        file_name=r'Start_Screen.png',
+        img_name='Start_Screen',
+        width=320,
+        height=240
     )
