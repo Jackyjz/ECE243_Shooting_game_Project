@@ -482,7 +482,7 @@ void update_enemies() {
       // set velocity to be in direction of mario
       float dx = mario_x - enemies[i].x;
       float dy = mario_y - enemies[i].y;
-      float distance = sqrt((dx * dx) + (dy * dy));
+      float distance = sqroot((dx * dx) + (dy * dy));
 
       // enemies[i].y -= enemies[i].speed;
 
