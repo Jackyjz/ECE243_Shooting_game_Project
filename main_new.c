@@ -167,8 +167,7 @@ int main(void) {
 	  
 	  mario_hit = check_enemy_mario_collisions();
 		
-      if (score == 5 || time_remaining <= 0 || mario_hit) {  // stop game if score reaches 5 or time's up!
-        time_remaining = 0;
+      if (time_remaining <= 0 || mario_hit) {  // stop game if score reaches 5 or time's up!
 		  // Display Game Over once:
        plot_image_end_screen(0,0);
       //  updateScoreDisplay();
