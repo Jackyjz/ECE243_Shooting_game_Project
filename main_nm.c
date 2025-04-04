@@ -111,6 +111,7 @@ typedef struct {
 } Bullet;
 
 Bullet bullets[MAX_BULLETS];
+int time_remaining = 60;
 
 int main(void) {
   srand(time(NULL));
@@ -151,7 +152,6 @@ int main(void) {
     writeWord(score_text, 70, 3);
 
     /* timer setup */
-    int time_remaining = 60;
 
     while (1) {
       if (stop) {
@@ -171,8 +171,7 @@ int main(void) {
       if (time_remaining <= 0 ||
           mario_hit) {  // stop game if score reaches 5 or time's up!
                         // Display Game Over once:
-          time_remaining = 60;
-		  plot_image_end_screen(0, 0);
+        plot_image_end_screen(0, 0);
         //  updateScoreDisplay();
         //  writeWord(score_text, 70, 3);
 
@@ -276,6 +275,7 @@ void writeWord(char *word, int x, int y) {
 
 void reset_game() {
   // Reset score and frame counter
+  time_remaining = 60;
   score = 0;
   frame_count = 0;
   initial_speed = 1.0;  // starting enemy speed
@@ -482,7 +482,7 @@ void update_enemies() {
       // set velocity to be in direction of mario
       float dx = mario_x - enemies[i].x;
       float dy = mario_y - enemies[i].y;
-      float distance = sqroot((dx * dx) + (dy * dy));
+      float distance = sqrt((dx * dx) + (dy * dy));
 
       // enemies[i].y -= enemies[i].speed;
 
@@ -26544,9 +26544,9 @@ void display_on_hex(int time) {
   int ones = time % 10;
 
   int hex_values[10] = {0x3f, 0x06, 0x5b, 0x4f, 0x66,
-                        0x6d, 0x7d, 0x07, 0x7f, 0x6f};		// map of 0-10 in hex binary
+                        0x6d, 0x7d, 0x07, 0x7f, 0x6f};
 
-  *hex_base = (hex_values[tens] << 8) | hex_values[ones];	// shift tens up by 8 bits, or with ones to get 16 bits, then write to hex0 and hex1
+  *hex_base = (hex_values[tens] << 8) | hex_values[ones];
 }
 
 bool check_enemy_mario_collisions() {
