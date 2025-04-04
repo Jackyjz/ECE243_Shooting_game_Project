@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
 #define PIXEL_BUF_CTRL_BASE 0xFF203020
@@ -16,6 +17,7 @@
 #define Enemies_WIDTH 20
 #define Enemies_HEIGHT 15
 #define char_base 0x09000000
+#define audio_base 0xFF203040
 
 volatile int pixel_buffer_start;        // Pointer to the current drawing buffer
 short int Buffer1[SCREEN_HEIGHT][512];  // Front/back buffer 1
@@ -53,6 +55,7 @@ int current_speed = 1;
 bool Gamestart = false;
 bool fire = false;
 bool bullet_active = false;
+bool mario_hit = false;
 void shift_old_positions();
 void shift_bull_old_positions();
 void bullet_shooting();
@@ -78,6 +81,9 @@ int score = 0;
 char score_str[20];
 char score_text[] = "score: ";
 void plot_image_Start_Screen(int x, int y);
+void play_sound();
+void display_on_hex(int time);
+bool check_enemy_mario_collisions();
 
 void updateScoreDisplay() {
   // Option 1: if sprintf is allowed
@@ -142,6 +148,9 @@ int main(void) {
     plot_image_bg(0, 0);
     wait_for_vsync();  // draw bg to both buffer avoid flickering
     writeWord(score_text, 70, 3);
+	  
+	/* timer setup */
+	int time_remaining = 60;
 
     while (1) {
       if (stop) {
@@ -153,8 +162,14 @@ int main(void) {
         pixel_buffer_start = *(pixel_ctrl_ptr + 1);
         break;
       }
-      if (score == 5) { // u can put ur counter finish counting condition here! 
-        // Display Game Over once:
+		
+	  display_on_hex(time_remaining);
+	  
+	  mario_hit = check_enemy_mario_collisions();
+		
+      if (score == 5 || time_remaining <= 0 || mario_hit) {  // stop game if score reaches 5 or time's up!
+        time_remaining = 0;
+		  // Display Game Over once:
        plot_image_end_screen(0,0);
       //  updateScoreDisplay();
       //  writeWord(score_text, 70, 3);
@@ -221,6 +236,11 @@ int main(void) {
       // Sync to screen
       wait_for_vsync();
       pixel_buffer_start = *(pixel_ctrl_ptr + 1);
+		
+	  // increment timer
+	  if ((frame_count % 60) == 0 && time_remaining > 0) {
+		  time_remaining--;
+	  }
     }
   }
   return 0;
@@ -261,6 +281,7 @@ void reset_game() {
   // Reset Mario's position (update these to your desired starting positions)
   mario_x = 0;
   mario_y = 0;
+  mario_hit = false;
 
   // Reset enemy array: deactivate all enemies and clear their positions
   for (int i = 0; i < Max_Enemies; i++) {
@@ -279,6 +300,7 @@ void reset_game() {
     bullx_old[i] = bully_old[i] = -100;
     bullx_old2[i] = bully_old2[i] = -100;
   }
+	
 }
 
 void check_bullet_enemy_collisions() {
@@ -294,6 +316,7 @@ void check_bullet_enemy_collisions() {
         // Collision happened!
         score++;
         updateScoreDisplay();
+		play_sound();
 
         erase_enemy(enemiesx_old2[j], enemiesy_old2[j], Enemies_WIDTH,
                     Enemies_HEIGHT);
@@ -455,7 +478,20 @@ void spawn_enemy(int initial_speed) {
 void update_enemies() {
   for (int i = 0; i < Max_Enemies; i++) {
     if (enemies[i].active) {
-      enemies[i].y -= enemies[i].speed;
+		// set velocity to be in direction of mario
+	  float dx = mario_x - enemies[i].x;
+	  float dy = mario_y - enemies[i].y;
+	  float distance = sqrt((dx*dx) + (dy*dy));
+      
+		//enemies[i].y -= enemies[i].speed;
+		
+	  if (distance > 0) {
+		  dx = dx/distance;
+		  dy = dy/distance;
+		  
+		  enemies[i].x += (dx*enemies[i].speed);
+		  enemies[i].y += (dy*enemies[i].speed);
+	  }
 
       // Draw the enemy
       if ((enemies[i].type == GOOMBA) &&
@@ -475,6 +511,7 @@ void update_enemies() {
     }
   }
 }
+
 void bullet_update() {  // bullet flying animation
   for (int i = 0; i < MAX_BULLETS; i++) {
     if (bullets[i].active) {
@@ -488,6 +525,7 @@ void bullet_update() {  // bullet flying animation
     }
   }
 }
+
 void read_PS2_Mario() {
   volatile int *PS2_ptr = (int *)0xFF200100;  // PS/2 base address
   int PS2_data, RVALID;
@@ -9404,4 +9442,50 @@ void erase_image_Start_Screen(int x, int y) {
                 plot_pixel(x + j, y + i, 0);
         }
     }
+}
+
+
+void play_sound() {
+	volatile int * audio_ptr = (int *)audio_base;
+	int fifospace; 
+	
+	for (int i = 0; i < 1000; i++) {
+		fifospace = *(audio_ptr+1);			// get fifospace register
+		if ((fifospace & 0x000000FF) > 0) {	// access rarc to check if there is anything in right channel
+			int left = *(audio_ptr+2);		// get sample from left 
+			int right = *(audio_ptr+3);		// get sample from right
+			// reading removes them from the fifo!
+		
+			*(audio_ptr+2) = left;			// add sample to left
+			*(audio_ptr+3) = right;			// add sample to right
+		}
+	}
+}
+
+
+void display_on_hex(int time) {
+	volatile int *hex_base = (int *)0xFF200020;
+	
+	int tens = (time / 10) % 10;
+	int ones = time % 10;
+	
+	int hex_values[10] = {0x3f, 0x06, 0x5b, 0x4f, 0x66,
+						  0x6d, 0x7d, 0x07, 0x7f, 0x6f};
+	
+	*hex_base = (hex_values[tens] << 8) | hex_values[ones];
+}
+
+bool check_enemy_mario_collisions() {
+	if (frame_count == 0) return false;
+	
+	for (int j = 0; j < Max_Enemies; j++) {
+    	if (!enemies[j].active) continue;
+
+    	if (AABB_collision(mario_x, mario_y, 28, 32,
+                         enemies[j].x, enemies[j].y, Enemies_WIDTH,
+                         Enemies_HEIGHT)) {
+			return true;
+		}
+	}
+	return false;
 }
