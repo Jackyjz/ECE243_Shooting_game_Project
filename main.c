@@ -110,6 +110,7 @@ typedef struct {
 } Bullet;
 
 Bullet bullets[MAX_BULLETS];
+int time_remaining = 60;
 
 int main(void) {
   srand(time(NULL));
@@ -150,7 +151,6 @@ int main(void) {
     writeWord(score_text, 70, 3);
 
     /* timer setup */
-    int time_remaining = 60;
 
     while (1) {
       if (stop) {
@@ -274,6 +274,7 @@ void writeWord(char *word, int x, int y) {
 
 void reset_game() {
   // Reset score and frame counter
+  time_remaining = 60;
   score = 0;
   frame_count = 0;
   initial_speed = 1.0;  // starting enemy speed
